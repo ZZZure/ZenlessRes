@@ -1,10 +1,16 @@
 import json
+import shutil
 import logging
-from typing import Any
 from pathlib import Path
+from typing import Any, Union, Optional
+
+from PIL import Image
 
 textmap: dict[str, dict[str, str]] = {}
 hashkey: dict[str, str] = {}
+
+data_path: Path = Path("download/ZenlessData")
+image_path: Path = Path("download/Sprite")
 
 TEXTMAP_FILE_DICT = {
     "chs": "TextMap/TextMapTemplateTb.json",
@@ -35,17 +41,44 @@ class ParseTool:
 
     def set(self, key: str, value: Any):
         """
-        Set a key to hash mapping
+        Set a key to stable value
         """
         self.key_list.append(key) if key not in self.key_list else None
         self.data[key] = value
 
     def set_hash(self, key: str, hash: str):
         """
-        Set a key to hash mapping
+        Set a key to hash of text
         """
         self.key_list.append(key) if key not in self.key_list else None
         self.hash_map[key] = hash
+
+    def set_image(
+        self,
+        key: str,
+        image: str,
+        folder: Path,
+        stem: str,
+        *,
+        size: Optional[int] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+    ):
+        """
+        Set a key to sprite image
+        """
+        global image_path
+        image_name = image.split("/")[-1]
+        sprite_path = image_path / image_name
+        output_path = folder / f"{stem}.png"
+        self.key_list.append(key) if key not in self.key_list else None
+        if sprite_path.exists():
+            folder.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(sprite_path, output_path)
+            # resize_image(output_path, size=size, width=width, height=height)
+            self.data[key] = output_path.as_posix()
+        else:
+            self.data[key] = ""
 
     def export(self, language: str):
         """
@@ -69,10 +102,13 @@ def get_language_list():
     return list(textmap.keys())
 
 
-def decode_file(file_path: Path):
+def decode_file(file: str):
     """
     Open a JSON file and replace hashed keys with readable text
     """
+    global hashkey
+    global data_path
+    file_path = data_path / file
     raw_text = file_path.read_text()
     for hash in hashkey.keys():
         hash_str = f'"{hash}"'
@@ -95,6 +131,68 @@ def dump_file(content: dict[str, ParseTool], stem: str):
         file_path.write_text(json.dumps(data, ensure_ascii=False))
 
 
+def resize_image(
+    path: Union[Path, str],
+    *,
+    size: Optional[int] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+):
+    """
+    Resize an image to a specific size
+
+    Args:
+        path: Path to the image
+        size: Size of the image.
+        width: Width of the image.
+        height: Height of the image.
+
+    Note:
+        If `size` is specified,
+            the image will be resized to a square image with the specified size.
+        If `width` or `height` is specified,
+            the image will be resized to the specified width or height.
+        If neither specified,
+            the image will be resized to a 128x128 square image.
+    """
+    if size is None and width is None and height is None:
+        size = 128
+    image = Image.open(path)
+    image_width, image_height = image.size
+    if size is not None:
+        # make a non-square image square by adding padding
+        if image_height == size and image_width == size:
+            return
+        max_dim = max(image_width, image_height)
+        bg = Image.new("RGBA", (max_dim, max_dim), (255, 255, 255, 0))
+        bg.paste(image, ((max_dim - image_width) // 2, (max_dim - image_height) // 2))
+        img = bg.resize((size, size))
+        img.save(path, "png")
+        return
+    # width is not None or height is not None:
+    # resize the image to the specified width and height
+    width = (
+        width
+        if width is not None
+        else (image_width * (height or image_height) // image_height)
+    )
+    height = height if height is not None else (image_height * width // image_width)
+    if image_width == width and image_height == height:
+        return
+    img = image.resize((width, height))
+    img.save(path, "png")
+
+
+def init_path(data: Path, image: Path):
+    """
+    Initialize path
+    """
+    global data_path
+    global image_path
+    data_path = data
+    image_path = image
+
+
 def init_textmap(data_path: Path):
     """
     Load textmap files
@@ -113,16 +211,25 @@ def init_hashkey(data_path: Path):
     Build hashkey
     """
     global hashkey
-    character_raw_json = json.loads(
+    agent_raw_json = json.loads(
         (data_path / "FileCfg/AvatarBaseTemplateTb.json").read_text()
     )
-    data_hash = next(iter(character_raw_json))
-    character_raw_keys = list(character_raw_json[data_hash][0].keys())
+    data_hash = next(iter(agent_raw_json))
+    agent_raw_keys = list(agent_raw_json[data_hash][0].keys())
     hashkey[data_hash] = "data"
-    hashkey[character_raw_keys[0]] = "id"
-    hashkey[character_raw_keys[2]] = "name"
-    hashkey[character_raw_keys[3]] = "full_name"
-    hashkey[character_raw_keys[4]] = "tag"
+    hashkey[agent_raw_keys[0]] = "id"
+    hashkey[agent_raw_keys[1]] = "name_en"
+    hashkey[agent_raw_keys[2]] = "name"
+    hashkey[agent_raw_keys[3]] = "name_full"
+    hashkey[agent_raw_keys[4]] = "tag"
+    profession_raw_json = json.loads(
+        (data_path / "FileCfg/AvatarProfessionTemplateTb.json").read_text()
+    )
+    profession_raw_keys = list(profession_raw_json[data_hash][0].keys())
+    hashkey[profession_raw_keys[0]] = "id"
+    hashkey[profession_raw_keys[1]] = "name"
+    hashkey[profession_raw_keys[2]] = "icon"
+    hashkey[profession_raw_keys[3]] = "description"
 
 
 logger = logging.getLogger("ZenlessGenerator")

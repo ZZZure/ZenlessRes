@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts import module_list, logger, init_textmap, init_hashkey
+from scripts import module_list, logger, init_path, init_textmap, init_hashkey
 
 config: dict[str, str] = {
     "data": "download/ZenlessData",
@@ -53,9 +53,10 @@ if __name__ == "__main__":
         logger.error("Usually the path of Sprite which includes images")
         exit(1)
 
+    init_path(data_path, image_path)
     init_textmap(data_path)
     init_hashkey(data_path)
 
     for module in module_list:
-        module.generate(data_path, image_path)
+        module.generate()  # type: ignore
         logger.info(f"Module {module.__name__} generated")
